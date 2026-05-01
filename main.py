@@ -91,6 +91,28 @@ class TacticalPatrolPlanner:
                 best_yaw = (i + 45) % 360 # Center of the 90deg window
                 
         return max_fov_score, best_yaw
+    
+    def sweep_camera(self, cx, cy, yaw, fov=90):
+        """Clears staleness using true raycasting along the current camera heading."""
+        half_fov = fov // 2
+        start_angle = int(yaw - half_fov) % 360
+        
+        for i in range(fov):
+            # Wrap the angle around 360 degrees
+            angle = int((start_angle + i) % 360)
+            
+            for offset_x, offset_y in self.ray_table[angle]:
+                check_x, check_y = cx + offset_x, cy + offset_y
+                
+                # Boundary check
+                if (0 <= check_x < self.occupancy_grid.shape[0] and 
+                    0 <= check_y < self.occupancy_grid.shape[1]):
+                    
+                    if self.occupancy_grid[check_x][check_y] == 1:
+                        break # Wall hit! Stop looking down this ray.
+                    
+                    # If it's free space and visible, reset staleness to 0
+                    self.staleness_grid[check_x][check_y] = 0.0
 
     def get_next_best_view(self, current_x, current_y, candidate_nodes):
         """The S(n) Utility Equation to pick the next destination."""

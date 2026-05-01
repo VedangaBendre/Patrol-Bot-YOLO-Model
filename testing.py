@@ -57,7 +57,7 @@ def run_simulation():
         
         # 2. STATE MACHINE: Are we driving or thinking?
         if len(current_path) == 0:
-            # THINKING STATE: We reached our destination. Time to pick a new one.
+            # THINKING STATE: We reached our destination. Pick a new one.
             candidates = []
             for x in range(0, GRID_W, 2):
                 for y in range(0, GRID_H, 2):
@@ -67,23 +67,24 @@ def run_simulation():
             next_node, best_yaw = planner.get_next_best_view(robot_x, robot_y, candidates)
             
             if next_node:
-                # Instead of teleporting, calculate the physical path
                 current_path = planner.a_star((robot_x, robot_y), next_node)
+                # Once it decides where to go, do one final sweep at the optimal target angle
+                planner.sweep_camera(robot_x, robot_y, best_yaw, fov=90)
         
         else:
-            # DRIVING STATE: Take one physical step along the generated path
+            # DRIVING STATE: Take one physical step
             next_step = current_path.pop(0)
+            
+            # Calculate physical yaw based on movement direction using atan2
+            dx = next_step[0] - robot_x
+            dy = next_step[1] - robot_y
+            current_yaw = math.degrees(math.atan2(dy, dx)) % 360
+            
             robot_x, robot_y = next_step
             
-            # Simulated Camera Sweep (Clears staleness as it drives)
-            # A real bot uses Bresenham here; we'll use a radius sweep for visual effect.
-            for dx in range(-4, 5):
-                for dy in range(-4, 5):
-                    cx, cy = robot_x + dx, robot_y + dy
-                    if 0 <= cx < GRID_W and 0 <= cy < GRID_H:
-                        if planner.occupancy_grid[cx][cy] == 0:
-                            planner.staleness_grid[cx][cy] = 0.0
-
+            # TRUE CAMERA SWEEP: Raycast only what the camera physically sees
+            planner.sweep_camera(robot_x, robot_y, current_yaw, fov=90)
+        
         # --- DRAWING THE SCREEN ---
         screen.fill((255, 255, 255))
         
