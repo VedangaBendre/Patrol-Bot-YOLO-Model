@@ -1,33 +1,47 @@
 import pygame
-import numpy as np
-import math
 import sys
+import math
 
-from main import TacticalPatrolPlanner
+from main import TacticalPatrolPlanner 
 
 def run_simulation():
     pygame.init()
     
-    # Grid settings
-    GRID_W, GRID_H = 20, 20
-    CELL_SIZE_PX = 30
+    # Increased grid size to allow for complex rooms
+    GRID_W, GRID_H = 30, 30
+    CELL_SIZE_PX = 25 # Slightly smaller pixels to fit the screen
     screen = pygame.display.set_mode((GRID_W * CELL_SIZE_PX, GRID_H * CELL_SIZE_PX))
-    pygame.display.set_caption("SS-NBV Tactical Patrol Simulator")
-    clock = pygame.time.Clock()
+    pygame.display.set_caption("SS-NBV Tactical Patrol Simulator - Complex Environment")
 
-    # 1. Initialize the Planner
     planner = TacticalPatrolPlanner(grid_width=GRID_W, grid_height=GRID_H, cell_size_cm=20)
     
-    # 2. Build a Mock Room (Fake Onion Peeling result)
-    # 0 = Free Space, 1 = Wall
-    planner.occupancy_grid[5:15, 10] = 1 # A vertical wall in the middle
-    planner.occupancy_grid[5, 5:10] = 1  # A horizontal wall
+    # ==========================================
+    # BUILDING THE COMPLEX ENVIRONMENT
+    # ==========================================
     
-    # 3. Add a Mock YOLO Semantic Target (A high-risk door)
-    planner.mark_semantic_target(18, 18, "door")
+    # 1. Top-Left Room (with a narrow door at the bottom)
+    planner.occupancy_grid[5:15, 8] = 1      # Right wall of the room
+    planner.occupancy_grid[15, 0:5] = 1      # Bottom wall (leaves gap at x=5,6,7 for door)
+    
+    # 2. Bottom-Right Server Room (L-shaped trap)
+    planner.occupancy_grid[20:28, 20] = 1    # Left wall
+    planner.occupancy_grid[20, 20:30] = 1    # Top wall (door is at the bottom right)
+    
+    # 3. Central Obstacle (Desks / Pillars blocking Line of Sight)
+    planner.occupancy_grid[12:16, 14:18] = 1 
+    
+    # 4. A random dead-end wall segment to test the raycasting
+    planner.occupancy_grid[2:8, 22] = 1
+    
+    # ==========================================
+    # SEMANTIC TARGETS (YOLO Mock Data)
+    # ==========================================
+    # Mark the doorway of the Top-Left room as a high-risk portal
+    planner.mark_semantic_target(6, 15, "door")
+    planner.mark_semantic_target(7, 15, "door")
 
-    # Robot State
-    robot_x, robot_y = 2, 2
+    # Robot Starting State (Bottom Left Corner)
+    robot_x, robot_y = 2, 28
 
     running = True
     while running:
@@ -36,28 +50,25 @@ def run_simulation():
                 running = False
 
         # --- ALGORITHM LOGIC ---
-        
-        # 1. Age the room (Staleness increases)
         planner.update_staleness()
         
-        # 2. Generate Candidate Nodes (Every 2nd free block for speed)
+        # Generate Candidate Nodes (Only checking free space)
         candidates = []
         for x in range(0, GRID_W, 2):
             for y in range(0, GRID_H, 2):
                 if planner.occupancy_grid[x][y] == 0:
                     candidates.append((x, y))
                     
-        # 3. Run Utility Equation to find Next Best View
+        # Find Next Best View
         next_node, best_yaw = planner.get_next_best_view(robot_x, robot_y, candidates)
         
         if next_node:
+            # TELEPORTING (We will replace this with A* in Part 2)
             robot_x, robot_y = next_node
             
-            # 4. Sweep the camera (Reset staleness of what the robot can see now)
-            # In a real bot, you use Bresenham here to reset only visible blocks.
-            # For this visualizer, we'll do a simple radius reset.
-            for dx in range(-4, 5):
-                for dy in range(-4, 5):
+            # Simulated Camera Sweep (Clearing staleness based on rough Line of Sight)
+            for dx in range(-5, 6):
+                for dy in range(-5, 6):
                     cx, cy = robot_x + dx, robot_y + dy
                     if 0 <= cx < GRID_W and 0 <= cy < GRID_H:
                         if planner.occupancy_grid[cx][cy] == 0:
@@ -70,30 +81,33 @@ def run_simulation():
             for y in range(GRID_H):
                 rect = pygame.Rect(x * CELL_SIZE_PX, y * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX)
                 
-                # Draw Walls
+                # Draw Walls (Solid Black)
                 if planner.occupancy_grid[x][y] == 1:
-                    pygame.draw.rect(screen, (50, 50, 50), rect)
+                    pygame.draw.rect(screen, (30, 30, 30), rect)
                 else:
-                    # Draw Staleness (Heatmap: White -> Red as it ages)
-                    stale_val = min(255, int(planner.staleness_grid[x][y] * 5))
+                    # Draw Staleness Heatmap (White -> Red)
+                    stale_val = min(255, int(planner.staleness_grid[x][y] * 3)) # Multiplier controls visual fade speed
                     color = (255, 255 - stale_val, 255 - stale_val)
                     pygame.draw.rect(screen, color, rect)
-                    pygame.draw.rect(screen, (200, 200, 200), rect, 1) # Grid lines
+                    # Optional: uncomment to draw grid lines
+                    # pygame.draw.rect(screen, (220, 220, 220), rect, 1) 
 
-        # Draw Robot
+        # Draw the High-Risk Doorway in Orange (for visualization)
+        pygame.draw.rect(screen, (255, 165, 0), pygame.Rect(6 * CELL_SIZE_PX, 15 * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX))
+        pygame.draw.rect(screen, (255, 165, 0), pygame.Rect(7 * CELL_SIZE_PX, 15 * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX))
+
+        # Draw Robot (Blue Circle)
         bot_center = (int((robot_x + 0.5) * CELL_SIZE_PX), int((robot_y + 0.5) * CELL_SIZE_PX))
-        pygame.draw.circle(screen, (0, 0, 255), bot_center, int(CELL_SIZE_PX * 0.4))
+        pygame.draw.circle(screen, (0, 100, 255), bot_center, int(CELL_SIZE_PX * 0.4))
         
-        # Draw Yaw Angle (Camera Direction)
+        # Draw Camera Direction (Green Line)
         yaw_rad = math.radians(best_yaw)
-        end_x = bot_center[0] + int(math.cos(yaw_rad) * CELL_SIZE_PX)
-        end_y = bot_center[1] + int(math.sin(yaw_rad) * CELL_SIZE_PX)
-        pygame.draw.line(screen, (0, 255, 0), bot_center, (end_x, end_y), 3)
+        end_x = bot_center[0] + int(math.cos(yaw_rad) * CELL_SIZE_PX * 1.5)
+        end_y = bot_center[1] + int(math.sin(yaw_rad) * CELL_SIZE_PX * 1.5)
+        pygame.draw.line(screen, (0, 255, 0), bot_center, (end_x, end_y), 4)
 
         pygame.display.flip()
-        
-        # Delay so you can actually watch it think and move
-        pygame.time.delay(500) 
+        pygame.time.delay(400) # Slowed down slightly so you can watch the logic
 
     pygame.quit()
     sys.exit()
