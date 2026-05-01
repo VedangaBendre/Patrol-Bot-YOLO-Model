@@ -42,6 +42,7 @@ def run_simulation():
 
     # Robot Starting State (Bottom Left Corner)
     robot_x, robot_y = 2, 28
+    current_path = [] # Tracks the robot's physical movement sequence
 
     running = True
     while running:
@@ -49,26 +50,35 @@ def run_simulation():
             if event.type == pygame.QUIT:
                 running = False
 
-        # --- ALGORITHM LOGIC ---
+        # --- ALGORITHM & MOVEMENT LOGIC ---
+        
+        # 1. The Room is always aging
         planner.update_staleness()
         
-        # Generate Candidate Nodes (Only checking free space)
-        candidates = []
-        for x in range(0, GRID_W, 2):
-            for y in range(0, GRID_H, 2):
-                if planner.occupancy_grid[x][y] == 0:
-                    candidates.append((x, y))
-                    
-        # Find Next Best View
-        next_node, best_yaw = planner.get_next_best_view(robot_x, robot_y, candidates)
-        
-        if next_node:
-            # TELEPORTING (We will replace this with A* in Part 2)
-            robot_x, robot_y = next_node
+        # 2. STATE MACHINE: Are we driving or thinking?
+        if len(current_path) == 0:
+            # THINKING STATE: We reached our destination. Time to pick a new one.
+            candidates = []
+            for x in range(0, GRID_W, 2):
+                for y in range(0, GRID_H, 2):
+                    if planner.occupancy_grid[x][y] == 0:
+                        candidates.append((x, y))
+                        
+            next_node, best_yaw = planner.get_next_best_view(robot_x, robot_y, candidates)
             
-            # Simulated Camera Sweep (Clearing staleness based on rough Line of Sight)
-            for dx in range(-5, 6):
-                for dy in range(-5, 6):
+            if next_node:
+                # Instead of teleporting, calculate the physical path
+                current_path = planner.a_star((robot_x, robot_y), next_node)
+        
+        else:
+            # DRIVING STATE: Take one physical step along the generated path
+            next_step = current_path.pop(0)
+            robot_x, robot_y = next_step
+            
+            # Simulated Camera Sweep (Clears staleness as it drives)
+            # A real bot uses Bresenham here; we'll use a radius sweep for visual effect.
+            for dx in range(-4, 5):
+                for dy in range(-4, 5):
                     cx, cy = robot_x + dx, robot_y + dy
                     if 0 <= cx < GRID_W and 0 <= cy < GRID_H:
                         if planner.occupancy_grid[cx][cy] == 0:
@@ -80,34 +90,33 @@ def run_simulation():
         for x in range(GRID_W):
             for y in range(GRID_H):
                 rect = pygame.Rect(x * CELL_SIZE_PX, y * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX)
-                
-                # Draw Walls (Solid Black)
                 if planner.occupancy_grid[x][y] == 1:
                     pygame.draw.rect(screen, (30, 30, 30), rect)
                 else:
-                    # Draw Staleness Heatmap (White -> Red)
-                    stale_val = min(255, int(planner.staleness_grid[x][y] * 3)) # Multiplier controls visual fade speed
+                    stale_val = min(255, int(planner.staleness_grid[x][y] * 3))
                     color = (255, 255 - stale_val, 255 - stale_val)
                     pygame.draw.rect(screen, color, rect)
-                    # Optional: uncomment to draw grid lines
-                    # pygame.draw.rect(screen, (220, 220, 220), rect, 1) 
 
-        # Draw the High-Risk Doorway in Orange (for visualization)
+        # Draw Semantic Door (Orange)
         pygame.draw.rect(screen, (255, 165, 0), pygame.Rect(6 * CELL_SIZE_PX, 15 * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX))
         pygame.draw.rect(screen, (255, 165, 0), pygame.Rect(7 * CELL_SIZE_PX, 15 * CELL_SIZE_PX, CELL_SIZE_PX, CELL_SIZE_PX))
+
+        # VISUALIZATION UPGRADE: Draw the intended path line
+        if len(current_path) > 0:
+            path_pixels = [(int((px + 0.5) * CELL_SIZE_PX), int((py + 0.5) * CELL_SIZE_PX)) for px, py in current_path]
+            # Add the current robot pos to the start of the line so it connects
+            path_pixels.insert(0, (int((robot_x + 0.5) * CELL_SIZE_PX), int((robot_y + 0.5) * CELL_SIZE_PX)))
+            if len(path_pixels) > 1:
+                pygame.draw.lines(screen, (255, 0, 255), False, path_pixels, 2) # Magenta line
 
         # Draw Robot (Blue Circle)
         bot_center = (int((robot_x + 0.5) * CELL_SIZE_PX), int((robot_y + 0.5) * CELL_SIZE_PX))
         pygame.draw.circle(screen, (0, 100, 255), bot_center, int(CELL_SIZE_PX * 0.4))
-        
-        # Draw Camera Direction (Green Line)
-        yaw_rad = math.radians(best_yaw)
-        end_x = bot_center[0] + int(math.cos(yaw_rad) * CELL_SIZE_PX * 1.5)
-        end_y = bot_center[1] + int(math.sin(yaw_rad) * CELL_SIZE_PX * 1.5)
-        pygame.draw.line(screen, (0, 255, 0), bot_center, (end_x, end_y), 4)
 
         pygame.display.flip()
-        pygame.time.delay(400) # Slowed down slightly so you can watch the logic
+        
+        # Reduced delay so the robot drives smoothly instead of jumping
+        pygame.time.delay(50) 
 
     pygame.quit()
     sys.exit()

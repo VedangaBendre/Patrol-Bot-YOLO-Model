@@ -1,5 +1,6 @@
 import numpy as np
 import math
+import heapq
 
 class TacticalPatrolPlanner:
     def __init__(self, grid_width, grid_height, cell_size_cm=20):
@@ -113,3 +114,58 @@ class TacticalPatrolPlanner:
                 best_yaw = optimal_yaw
                 
         return best_node, best_yaw
+    
+    def a_star(self, start, goal):
+        """Calculates the shortest grid path from start to goal."""
+        # Standard 8-way movement (Horizontal, Vertical, Diagonal)
+        neighbors = [(0,1), (1,0), (0,-1), (-1,0), (1,1), (-1,-1), (1,-1), (-1,1)]
+        
+        close_set = set()
+        came_from = {}
+        gscore = {start: 0}
+        fscore = {start: math.dist(start, goal)} # Euclidean distance heuristic
+        
+        # Priority queue: stores tuples of (fscore, (x, y))
+        oheap = []
+        heapq.heappush(oheap, (fscore[start], start))
+        
+        while oheap:
+            current = heapq.heappop(oheap)[1]
+            
+            if current == goal:
+                # Target reached, reconstruct path backwards
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.reverse() # Flip it so it goes Start -> Goal
+                return path
+
+            close_set.add(current)
+            
+            for dx, dy in neighbors:
+                neighbor = (current[0] + dx, current[1] + dy)
+                
+                # Boundary check
+                if not (0 <= neighbor[0] < self.occupancy_grid.shape[0] and 
+                        0 <= neighbor[1] < self.occupancy_grid.shape[1]):
+                    continue
+                    
+                # Wall check
+                if self.occupancy_grid[neighbor[0]][neighbor[1]] == 1:
+                    continue
+                    
+                # Diagonal movement cost is slightly higher (sqrt(2))
+                cost = 1.414 if dx != 0 and dy != 0 else 1.0
+                tentative_g_score = gscore[current] + cost
+                
+                if neighbor in close_set and tentative_g_score >= gscore.get(neighbor, float('inf')):
+                    continue
+                    
+                if tentative_g_score < gscore.get(neighbor, float('inf')):
+                    came_from[neighbor] = current
+                    gscore[neighbor] = tentative_g_score
+                    fscore[neighbor] = tentative_g_score + math.dist(neighbor, goal)
+                    heapq.heappush(oheap, (fscore[neighbor], neighbor))
+                    
+        return [] # Return empty list if no path is possible
